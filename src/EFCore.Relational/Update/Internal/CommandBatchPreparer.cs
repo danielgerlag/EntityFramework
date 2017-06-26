@@ -153,13 +153,13 @@ namespace Microsoft.EntityFrameworkCore.Update.Internal
                 return _tableSharingIdentityMapFactories;
             }
 
-            var tables = new Dictionary<(string Schema, string TableName), List<IEntityType>>();
+            var tables = new Dictionary<(string Schema, string TableName), HashSet<IEntityType>>();
             foreach (var entityType in model.GetEntityTypes())
             {
                 var fullName = (entityType.Relational().Schema, entityType.Relational().TableName);
                 if (!tables.TryGetValue(fullName, out var mappedEntityTypes))
                 {
-                    mappedEntityTypes = new List<IEntityType>();
+                    mappedEntityTypes = new HashSet<IEntityType>();
                     tables.Add(fullName, mappedEntityTypes);
                 }
 
@@ -169,28 +169,22 @@ namespace Microsoft.EntityFrameworkCore.Update.Internal
             var sharedTablesMap = new Dictionary<IEntityType, ModificationCommandIdentityMapFactory>();
             foreach (var tableMapping in tables)
             {
-                var roots = new HashSet<IEntityType>(tableMapping.Value.Where(e => e.BaseType == null));
-                if (roots.Count > 1)
+                var entityTypes = tableMapping.Value;
+                if (entityTypes.Count > 1)
                 {
-                    var rootGraph = new Multigraph<IEntityType, IForeignKey>();
-                    rootGraph.AddVertices(roots);
-                    foreach (var entityType in roots)
+                    var principals = new Dictionary<IEntityType, IReadOnlyList<IEntityType>>(entityTypes.Count);
+                    foreach (var entityType in entityTypes)
                     {
-                        foreach (var foreignKey in entityType.GetForeignKeys())
+                        var principalList = new List<IEntityType>();
+                        foreach (var foreignKey in entityType.FindForeignKeys(entityType.FindPrimaryKey().Properties))
                         {
-                            if (foreignKey.PrincipalEntityType != entityType
-                                && roots.Contains(foreignKey.PrincipalEntityType))
+                            if (foreignKey.PrincipalKey.IsPrimaryKey()
+                                && entityTypes.Contains(foreignKey.PrincipalEntityType))
                             {
-                                rootGraph.AddEdge(foreignKey.PrincipalEntityType, foreignKey.DeclaringEntityType, foreignKey);
+                                principalList.Add(foreignKey.PrincipalEntityType);
                             }
                         }
-                    }
-
-                    var sortedRoots = rootGraph.TopologicalSort();
-                    var rootTypesOrder = new Dictionary<IEntityType, int>(sortedRoots.Count);
-                    for (var i = 0; i < sortedRoots.Count; i++)
-                    {
-                        rootTypesOrder[sortedRoots[i]] = i;
+                        principals[entityType] = principalList;
                     }
 
                     var stateManager = _currentContext.GetDependencies().StateManager;
@@ -202,13 +196,13 @@ namespace Microsoft.EntityFrameworkCore.Update.Internal
                         bool sensitiveLoggingEnabled)
                         => new ModificationCommandIdentityMap(
                             stateManager,
-                            rootTypesOrder,
+                            principals,
                             name,
                             schema,
                             generateParameterName,
                             sensitiveLoggingEnabled);
 
-                    foreach (var entityType in tableMapping.Value)
+                    foreach (var entityType in entityTypes)
                     {
                         sharedTablesMap.Add(entityType, CommandIdentityMapFactory);
                     }

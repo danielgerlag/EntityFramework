@@ -209,40 +209,60 @@ namespace Microsoft.EntityFrameworkCore.Infrastructure
             var firstValidatedType = mappedTypes[0];
             var validatedTypes = new List<IEntityType> { firstValidatedType };
             var unvalidatedTypes = new Queue<IEntityType>(mappedTypes.Skip(1));
-            while (unvalidatedTypes.Count > 0)
+            var invalidTypes = new Queue<IEntityType>();
+            var doAnotherPass = true;
+            while (doAnotherPass)
             {
-                var entityType = unvalidatedTypes.Dequeue();
-                var key = entityType.FindPrimaryKey();
-                var otherKey = firstValidatedType.FindPrimaryKey();
-                if (key.Relational().Name != otherKey.Relational().Name)
+                doAnotherPass = false;
+                while (unvalidatedTypes.Count > 0)
                 {
-                    throw new InvalidOperationException(
-                        RelationalStrings.IncompatibleTableKeyNameMismatch(
-                            tableName,
-                            entityType.DisplayName(),
-                            firstValidatedType.DisplayName(),
-                            key.Relational().Name,
-                            Property.Format(key.Properties),
-                            otherKey.Relational().Name,
-                            Property.Format(otherKey.Properties)));
+                    var entityType = unvalidatedTypes.Dequeue();
+                    var relationshipFound = validatedTypes.Any(validatedType =>
+                        entityType.RootType() == validatedType.RootType()
+                        || IsIdentifyingPrincipal(entityType, validatedType)
+                        || IsIdentifyingPrincipal(validatedType, entityType));
+                    if (!relationshipFound)
+                    {
+                        invalidTypes.Enqueue(entityType);
+                        continue;
+                    }
+
+                    var key = entityType.FindPrimaryKey();
+                    var otherKey = firstValidatedType.FindPrimaryKey();
+                    if (key.Relational().Name != otherKey.Relational().Name)
+                    {
+                        throw new InvalidOperationException(
+                            RelationalStrings.IncompatibleTableKeyNameMismatch(
+                                tableName,
+                                entityType.DisplayName(),
+                                firstValidatedType.DisplayName(),
+                                key.Relational().Name,
+                                Property.Format(key.Properties),
+                                otherKey.Relational().Name,
+                                Property.Format(otherKey.Properties)));
+                    }
+
+                    doAnotherPass = true;
+                    validatedTypes.Add(entityType);
                 }
 
-                var relationshipFound = validatedTypes.Any(validatedType =>
-                    entityType.RootType() == validatedType.RootType()
-                    || IsIdentifyingPrincipal(entityType, validatedType)
-                    || IsIdentifyingPrincipal(validatedType, entityType));
-                if (!relationshipFound)
+                if (doAnotherPass)
                 {
-                    throw new InvalidOperationException(
-                        RelationalStrings.IncompatibleTableNoRelationship(
-                            tableName,
-                            entityType.DisplayName(),
-                            firstValidatedType.DisplayName(),
-                            Property.Format(key.Properties),
-                            Property.Format(otherKey.Properties)));
+                    var temp = unvalidatedTypes;
+                    unvalidatedTypes = invalidTypes;
+                    invalidTypes = temp;
                 }
+            }
 
-                validatedTypes.Add(entityType);
+            foreach (var entityType in invalidTypes)
+            {
+                throw new InvalidOperationException(
+                    RelationalStrings.IncompatibleTableNoRelationship(
+                        tableName,
+                        entityType.DisplayName(),
+                        firstValidatedType.DisplayName(),
+                        Property.Format(entityType.FindPrimaryKey().Properties),
+                        Property.Format(firstValidatedType.FindPrimaryKey().Properties)));
             }
         }
 

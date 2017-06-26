@@ -681,20 +681,20 @@ namespace Microsoft.EntityFrameworkCore.Update
             var currentDbContext = CreateContextServices(CreateSharedTableModel()).GetRequiredService<ICurrentDbContext>();
             var stateManager = currentDbContext.GetDependencies().StateManager;
 
-            var first = new FakeEntity { Id = 42, Value = "Test" };
+            var first = new RelatedFakeEntity { Id = 42 };
             var firstEntry = stateManager.GetOrCreateEntry(first);
             firstEntry.SetEntityState(state);
 
             if (sensitiveLogging)
             {
-                Assert.Equal(RelationalStrings.SharedRowEntryCountMismatchSensitive(2, "FakeEntity", 1, "Id:42", state, "{'RelatedFakeEntity'}"),
+                Assert.Equal(RelationalStrings.SharedRowEntryCountMismatchSensitive("RelatedFakeEntity", "FakeEntity", "FakeEntity", "Id:42", state),
                     Assert.Throws<InvalidOperationException>(
                         () => CreateCommandBatchPreparer(currentDbContext: currentDbContext, sensitiveLogging: sensitiveLogging)
                             .BatchCommands(new[] { firstEntry }).ToArray()).Message);
             }
             else
             {
-                Assert.Equal(RelationalStrings.SharedRowEntryCountMismatch(2, "FakeEntity", 1, state, "{'RelatedFakeEntity'}"),
+                Assert.Equal(RelationalStrings.SharedRowEntryCountMismatch("RelatedFakeEntity", "FakeEntity", "FakeEntity", state),
                     Assert.Throws<InvalidOperationException>(
                         () => CreateCommandBatchPreparer(currentDbContext: currentDbContext, sensitiveLogging: sensitiveLogging)
                             .BatchCommands(new[] { firstEntry }).ToArray()).Message);

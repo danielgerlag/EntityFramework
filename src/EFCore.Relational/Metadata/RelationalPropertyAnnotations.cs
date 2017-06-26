@@ -48,18 +48,22 @@ namespace Microsoft.EntityFrameworkCore.Metadata
 
         private string GetDefaultColumnName()
         {
+            var entityType = Property.DeclaringEntityType;
             var pk = Property.GetContainingPrimaryKey();
             if (pk != null)
             {
-                var entityType = Property.DeclaringEntityType;
-                var ownership = entityType.GetForeignKeys().SingleOrDefault(fk => fk.IsOwnership);
-                if (ownership != null)
+                foreach (var fk in entityType.FindForeignKeys(pk.Properties))
                 {
-                    var ownerType = ownership.PrincipalEntityType;
+                    if (!fk.PrincipalKey.IsPrimaryKey())
+                    {
+                        continue;
+                    }
+
+                    var principalEntityType = fk.PrincipalEntityType;
                     var entityTypeAnnotations = GetAnnotations(entityType);
-                    var ownerTypeAnnotations = GetAnnotations(ownerType);
-                    if (entityTypeAnnotations.TableName == ownerTypeAnnotations.TableName
-                        && entityTypeAnnotations.Schema == ownerTypeAnnotations.Schema)
+                    var principalTypeAnnotations = GetAnnotations(principalEntityType);
+                    if (entityTypeAnnotations.TableName == principalTypeAnnotations.TableName
+                        && entityTypeAnnotations.Schema == principalTypeAnnotations.Schema)
                     {
                         var index = -1;
                         for (var i = 0; i < pk.Properties.Count; i++)
@@ -71,13 +75,12 @@ namespace Microsoft.EntityFrameworkCore.Metadata
                             }
                         }
 
-                        return GetAnnotations(ownerType.FindPrimaryKey().Properties[index]).ColumnName;
+                        return GetAnnotations(principalEntityType.FindPrimaryKey().Properties[index]).ColumnName;
                     }
                 }
             }
             else
             {
-                var entityType = Property.DeclaringEntityType;
                 StringBuilder builder = null;
                 do
                 {
