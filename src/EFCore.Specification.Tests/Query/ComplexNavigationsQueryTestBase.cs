@@ -1252,37 +1252,72 @@ namespace Microsoft.EntityFrameworkCore.Query
                   e => e.Name + "" + e.Id);
         }
 
+
+        public class MyEntity
+        {
+            public int Id { get; set; }
+            public string Name { get; set; }
+        }
+
+        [ConditionalFact]
+        public virtual void Netcoreapp_bug()
+        {
+            Func<IQueryable<MyEntity>, IQueryable<object>> func =
+                es =>
+                    es.Select(e => new MyOuterDto
+                    {
+                        Id = e.Id,
+                        Name = e.Name
+                    });
+
+            Action<dynamic, dynamic> elementAsserter = (e, a) => Console.WriteLine(e.Id);
+
+            var entities = new List<MyEntity>
+            {
+                new MyEntity {  Id = 1, Name = "1" },
+                new MyEntity {  Id = 2, Name = "2" },
+                new MyEntity {  Id = 3, Name = "3" }
+            }.AsQueryable();
+
+            var query = func(entities).ToArray();
+
+            for (var i = 0; i < query.Length; i++)
+            {
+                elementAsserter(query[i], query[i]);
+            }
+        }
+        
         [ConditionalFact]
         [FrameworkSkipCondition(RuntimeFrameworks.CoreCLR, SkipReason = "Failing after netcoreapp2.0 upgrade")]
         public virtual void Optional_navigation_projected_into_DTO()
         {
             AssertQuery<Level1>(
-                  l1s =>
-                      l1s.Select(e => new MyOuterDto
-                      {
-                          Id = e.Id,
-                          Name = e.Name,
-                          Inner = e.OneToOne_Optional_FK != null ? new MyInnerDto
-                          {
-                              Id = (int?)e.OneToOne_Optional_FK.Id,
-                              Name = e.OneToOne_Optional_FK.Name
-                          } : null
-                      }),
-                  e => e.Id + " " + e.Name + " " + e.Inner,
-                  (e, a) =>
-                      {
-                          Assert.Equal(e.Id, a.Id);
-                          Assert.Equal(e.Name, a.Name);
-                          if (e.Inner == null)
-                          {
-                              Assert.Null(a.Inner);
-                          }
-                          else
-                          {
-                              Assert.Equal(e.Inner.Id, a.Inner.Id);
-                              Assert.Equal(e.Inner.Name, a.Inner.Name);
-                          }
-                      });
+                l1s =>
+                    l1s.Select(e => new MyOuterDto
+                    {
+                        Id = e.Id,
+                        Name = e.Name,
+                        Inner = e.OneToOne_Optional_FK != null ? new MyInnerDto
+                        {
+                            Id = (int?)e.OneToOne_Optional_FK.Id,
+                            Name = e.OneToOne_Optional_FK.Name
+                        } : null
+                    }),
+                e => e.Id + " " + e.Name + " " + e.Inner,
+                (e, a) =>
+                    {
+                        Assert.Equal(e.Id, a.Id);
+                        Assert.Equal(e.Name, a.Name);
+                        if (e.Inner == null)
+                        {
+                            Assert.Null(a.Inner);
+                        }
+                        else
+                        {
+                            Assert.Equal(e.Inner.Id, a.Inner.Id);
+                            Assert.Equal(e.Inner.Name, a.Inner.Name);
+                        }
+                    });
         }
 
         public class MyOuterDto
