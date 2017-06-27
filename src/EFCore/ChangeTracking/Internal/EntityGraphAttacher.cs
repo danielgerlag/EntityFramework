@@ -1,10 +1,12 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Internal;
 
 namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
 {
@@ -15,14 +17,18 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
     public class EntityGraphAttacher : IEntityGraphAttacher
     {
         private readonly IEntityEntryGraphIterator _graphIterator;
+        private readonly IKeyPropagator _keyPropagator;
 
         /// <summary>
         ///     This API supports the Entity Framework Core infrastructure and is not intended to be used
         ///     directly from your code. This API may change or be removed in future releases.
         /// </summary>
-        public EntityGraphAttacher([NotNull] IEntityEntryGraphIterator graphIterator)
+        public EntityGraphAttacher(
+            [NotNull] IEntityEntryGraphIterator graphIterator,
+            [NotNull] IKeyPropagator keyPropagator)
         {
             _graphIterator = graphIterator;
+            _keyPropagator = keyPropagator;
         }
 
         /// <summary>
@@ -53,7 +59,7 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
                 PaintActionAsync,
                 cancellationToken);
 
-        private static bool PaintAction(EntityEntryGraphNode node)
+        private bool PaintAction(EntityEntryGraphNode node)
         {
             var internalEntityEntry = node.GetInfrastructure();
             if (internalEntityEntry.EntityState != EntityState.Detached)
@@ -61,10 +67,28 @@ namespace Microsoft.EntityFrameworkCore.ChangeTracking.Internal
                 return false;
             }
 
-            internalEntityEntry.SetEntityState(
-                internalEntityEntry.IsKeySet || internalEntityEntry.EntityType.IsOwned()
-                    ? (EntityState)node.NodeState : EntityState.Added,
-                acceptChanges: true);
+            var entityType = internalEntityEntry.EntityType;
+
+            if (node.SourceEntry != null
+                && entityType.IsOwned()
+                && entityType.DefiningEntityType == node.SourceEntry.Metadata)
+            {
+                foreach (var property in entityType.FindPrimaryKey().Properties
+                    .Where(p => p.ClrType.IsDefaultValue(internalEntityEntry[p])))
+                {
+                    _keyPropagator.PropagateValue(internalEntityEntry, property);
+                }
+
+                internalEntityEntry.SetEntityState(node.SourceEntry.State);
+            }
+            else
+            {
+                internalEntityEntry.SetEntityState(
+                    internalEntityEntry.IsKeySet
+                        ? (EntityState)node.NodeState
+                        : EntityState.Added,
+                    acceptChanges: true);
+            }
 
             return true;
         }
